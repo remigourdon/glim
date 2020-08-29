@@ -1,0 +1,13 @@
+[package]
+name = "glim"
+version = "0.1.0"
+authors = ["remigourdon <gourdon.remi@gmail.com>"]
+description = "CLI tool to manage local git repositories"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+git2 = "0.13"
+toml = "0.5"
+clap = "2"
