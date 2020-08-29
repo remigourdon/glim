@@ -11,3 +11,4 @@ edition = "2018"
 git2 = "0.13"
 toml = "0.5"
 clap = "2"
+serde = { version = "1.0", features = ["derive"] }
