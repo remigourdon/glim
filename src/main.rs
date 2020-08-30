@@ -1,5 +1,7 @@
 use clap::{crate_authors, crate_description, crate_name, crate_version, App, Arg, SubCommand};
 use directories::ProjectDirs;
+use git2::{Repository, Status, StatusOptions};
+use prettytable::{cell, format, row, Table};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -156,4 +158,58 @@ fn main() {
             config.save(config_path);
         }
     }
+
+    // Create table
+    let mut table = Table::new();
+
+    // Format table
+    let format = format::FormatBuilder::new()
+        .column_separator(' ')
+        .borders(' ')
+        .padding(0, 3)
+        .build();
+    table.set_format(format);
+
+    // Prepare status options
+    let mut status_opts = StatusOptions::new();
+    status_opts
+        .show(git2::StatusShow::IndexAndWorkdir)
+        .include_untracked(true)
+        .include_ignored(false);
+
+    // Fill table
+    for (name, path) in config.repositories.iter() {
+        let repository = Repository::open(path).unwrap();
+        let statuses = repository.statuses(Some(&mut status_opts)).unwrap();
+        let head = repository.head().unwrap();
+        let branch = head.shorthand().unwrap();
+        let staged = statuses.iter().any(|s| {
+            s.status() == Status::INDEX_NEW
+                || s.status() == Status::INDEX_MODIFIED
+                || s.status() == Status::INDEX_DELETED
+                || s.status() == Status::INDEX_RENAMED
+                || s.status() == Status::INDEX_TYPECHANGE
+        });
+        let unstaged = statuses.iter().any(|s| {
+            s.status() == Status::WT_MODIFIED
+                || s.status() == Status::WT_DELETED
+                || s.status() == Status::WT_RENAMED
+                || s.status() == Status::WT_TYPECHANGE
+        });
+        let untracked = statuses.iter().any(|s| s.status() == Status::WT_NEW);
+        let mut state = String::new();
+        if staged {
+            state.push('+');
+        }
+        if unstaged {
+            state.push('*');
+        }
+        if untracked {
+            state.push('_');
+        }
+        table.add_row(row![name, branch, state]);
+    }
+
+    // Display table
+    table.printstd();
 }

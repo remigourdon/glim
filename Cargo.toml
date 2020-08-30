@@ -13,3 +13,4 @@ toml = "0.5"
 directories = "3.0"
 clap = "2"
 serde = { version = "1.0", features = ["derive"] }
+prettytable-rs = { version = "0.8", default-features = false }
