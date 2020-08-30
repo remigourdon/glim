@@ -1,54 +1,11 @@
+mod config;
+
 use clap::{crate_authors, crate_description, crate_name, crate_version, App, Arg, SubCommand};
+use config::Config;
 use directories::ProjectDirs;
 use git2::{Repository, Status, StatusOptions};
 use prettytable::{cell, format, row, Table};
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-
-#[derive(Serialize, Deserialize, Debug)]
-struct Config {
-    repositories: HashMap<String, PathBuf>,
-}
-
-impl Config {
-    pub fn new() -> Self {
-        Config {
-            repositories: HashMap::new(),
-        }
-    }
-    pub fn add_repository<P: AsRef<Path>>(&mut self, path: P) -> bool {
-        let path = path.as_ref();
-        let name = path
-            .components()
-            .last()
-            .unwrap()
-            .as_os_str()
-            .to_str()
-            .unwrap();
-        if !self.repositories.contains_key(name) {
-            self.repositories.insert(name.to_owned(), path.to_owned());
-            true
-        } else {
-            false
-        }
-    }
-    pub fn remove_repository_by_name(&mut self, name: &str) -> bool {
-        self.repositories.remove(name).is_some()
-    }
-    pub fn rename_repository(&mut self, name: &str, new_name: &str) -> bool {
-        if !self.repositories.contains_key(name) || self.repositories.contains_key(new_name) {
-            false
-        } else {
-            let value = self.repositories.remove(name).unwrap();
-            self.repositories.insert(new_name.to_owned(), value);
-            true
-        }
-    }
-    pub fn save<P: AsRef<Path>>(&self, path: P) -> bool {
-        std::fs::write(path.as_ref(), toml::to_vec(self).unwrap()).is_err()
-    }
-}
+use std::path::Path;
 
 fn main() {
     // Get default config path
@@ -113,8 +70,7 @@ fn main() {
     // Load config from file or create new one
     let config_path = Path::new(matches.value_of("config").unwrap());
     let mut config: Config = if config_path.is_file() {
-        let config = std::fs::read_to_string(&config_path).unwrap();
-        toml::from_str(&config).unwrap()
+        Config::from_path(config_path)
     } else if config_path == default_config_path {
         let config_dir = project_dirs.config_dir();
         // Create the app's config directory if it doesn't exist
@@ -178,7 +134,7 @@ fn main() {
         .include_ignored(false);
 
     // Fill table
-    for (name, path) in config.repositories.iter() {
+    for (name, path) in config.repositories().iter() {
         let repository = Repository::open(path).unwrap();
         let statuses = repository.statuses(Some(&mut status_opts)).unwrap();
         let head = repository.head().unwrap();
