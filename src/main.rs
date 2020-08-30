@@ -1,4 +1,5 @@
 use clap::{crate_authors, crate_description, crate_name, crate_version, App, Arg, SubCommand};
+use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -9,6 +10,11 @@ struct Config {
 }
 
 impl Config {
+    pub fn new() -> Self {
+        Config {
+            repositories: HashSet::new(),
+        }
+    }
     pub fn add_repository<P: AsRef<Path>>(&mut self, path: P) -> bool {
         let path = path.as_ref();
         self.repositories.insert(path.to_owned())
@@ -19,7 +25,13 @@ impl Config {
 }
 
 fn main() {
-    let matches = App::new(crate_name!())
+    // Get default config path
+    let app_name = crate_name!();
+    let project_dirs = ProjectDirs::from("com", app_name, app_name).unwrap();
+    let default_config_path = project_dirs.config_dir().join("config.toml");
+
+    // Create clap app
+    let matches = App::new(app_name)
         .version(crate_version!())
         .author(crate_authors!("\n"))
         .about(crate_description!())
@@ -28,6 +40,7 @@ fn main() {
                 .short("c")
                 .long("config")
                 .value_name("FILE")
+                .default_value_os(&default_config_path.as_os_str())
                 .help("Sets a custom config file")
                 .takes_value(true),
         )
@@ -44,10 +57,23 @@ fn main() {
         )
         .get_matches();
 
-    let config_path = matches.value_of("config").unwrap_or("default.conf");
-    let config = std::fs::read_to_string(&config_path).unwrap();
-    let mut config: Config = toml::from_str(&config).unwrap();
+    // Load config from file or create new one
+    let config_path = Path::new(matches.value_of("config").unwrap());
+    let mut config: Config = if config_path.is_file() {
+        let config = std::fs::read_to_string(&config_path).unwrap();
+        toml::from_str(&config).unwrap()
+    } else if config_path == default_config_path {
+        let config_dir = project_dirs.config_dir();
+        // Create the app's config directory if it doesn't exist
+        if !config_dir.is_dir() {
+            std::fs::create_dir(config_dir).unwrap();
+        }
+        Config::new()
+    } else {
+        panic!("Invalid config file");
+    };
 
+    // Run subcommand
     if let Some(matches) = matches.subcommand_matches("add") {
         let mut added = 0;
         for path in matches.values_of("path").unwrap() {

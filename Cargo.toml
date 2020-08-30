@@ -10,5 +10,6 @@ edition = "2018"
 [dependencies]
 git2 = "0.13"
 toml = "0.5"
+directories = "3.0"
 clap = "2"
 serde = { version = "1.0", features = ["derive"] }
