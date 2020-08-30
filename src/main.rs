@@ -34,6 +34,15 @@ impl Config {
     pub fn remove_repository_by_name(&mut self, name: &str) -> bool {
         self.repositories.remove(name).is_some()
     }
+    pub fn rename_repository(&mut self, name: &str, new_name: &str) -> bool {
+        if !self.repositories.contains_key(name) || self.repositories.contains_key(new_name) {
+            false
+        } else {
+            let value = self.repositories.remove(name).unwrap();
+            self.repositories.insert(new_name.to_owned(), value);
+            true
+        }
+    }
     pub fn save<P: AsRef<Path>>(&self, path: P) -> bool {
         std::fs::write(path.as_ref(), toml::to_vec(self).unwrap()).is_err()
     }
@@ -81,6 +90,22 @@ fn main() {
                         .required(true),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("rename")
+                .about("Rename repository")
+                .arg(
+                    Arg::with_name("name")
+                        .value_name("NAME")
+                        .help("Current name of the repository")
+                        .required(true),
+                )
+                .arg(
+                    Arg::with_name("new_name")
+                        .value_name("NEW_NAME")
+                        .help("New name of the repository")
+                        .required(true),
+                ),
+        )
         .get_matches();
 
     // Load config from file or create new one
@@ -120,6 +145,14 @@ fn main() {
             }
         }
         if removed > 0 {
+            config.save(config_path);
+        }
+    }
+
+    if let Some(matches) = matches.subcommand_matches("rename") {
+        let name = matches.value_of("name").unwrap();
+        let new_name = matches.value_of("new_name").unwrap();
+        if config.rename_repository(name, new_name) {
             config.save(config_path);
         }
     }
