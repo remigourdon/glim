@@ -1,23 +1,35 @@
 use clap::{crate_authors, crate_description, crate_name, crate_version, App, Arg, SubCommand};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Config {
-    repositories: HashSet<PathBuf>,
+    repositories: HashMap<String, PathBuf>,
 }
 
 impl Config {
     pub fn new() -> Self {
         Config {
-            repositories: HashSet::new(),
+            repositories: HashMap::new(),
         }
     }
     pub fn add_repository<P: AsRef<Path>>(&mut self, path: P) -> bool {
         let path = path.as_ref();
-        self.repositories.insert(path.to_owned())
+        let name = path
+            .components()
+            .last()
+            .unwrap()
+            .as_os_str()
+            .to_str()
+            .unwrap();
+        if !self.repositories.contains_key(name) {
+            self.repositories.insert(name.to_owned(), path.to_owned());
+            true
+        } else {
+            false
+        }
     }
     pub fn save<P: AsRef<Path>>(&self, path: P) -> bool {
         std::fs::write(path.as_ref(), toml::to_vec(self).unwrap()).is_err()
@@ -46,7 +58,7 @@ fn main() {
         )
         .subcommand(
             SubCommand::with_name("add")
-                .about("Add new repository")
+                .about("Add new repositories")
                 .arg(
                     Arg::with_name("path")
                         .value_name("PATH")
@@ -73,7 +85,6 @@ fn main() {
         panic!("Invalid config file");
     };
 
-    // Run subcommand
     if let Some(matches) = matches.subcommand_matches("add") {
         let mut added = 0;
         for path in matches.values_of("path").unwrap() {
