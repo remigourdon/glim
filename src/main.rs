@@ -31,6 +31,9 @@ impl Config {
             false
         }
     }
+    pub fn remove_repository_by_name(&mut self, name: &str) -> bool {
+        self.repositories.remove(name).is_some()
+    }
     pub fn save<P: AsRef<Path>>(&self, path: P) -> bool {
         std::fs::write(path.as_ref(), toml::to_vec(self).unwrap()).is_err()
     }
@@ -67,6 +70,17 @@ fn main() {
                         .required(true),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("remove")
+                .about("Remove repositories")
+                .arg(
+                    Arg::with_name("name")
+                        .value_name("NAME")
+                        .multiple(true)
+                        .help("Names of the repositories to remove")
+                        .required(true),
+                ),
+        )
         .get_matches();
 
     // Load config from file or create new one
@@ -94,6 +108,18 @@ fn main() {
             }
         }
         if added > 0 {
+            config.save(config_path);
+        }
+    }
+
+    if let Some(matches) = matches.subcommand_matches("remove") {
+        let mut removed = 0;
+        for name in matches.values_of("name").unwrap() {
+            if config.remove_repository_by_name(name) {
+                removed += 1;
+            }
+        }
+        if removed > 0 {
             config.save(config_path);
         }
     }
