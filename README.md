@@ -52,8 +52,8 @@ In the 4th column, the ahead/behind status of the current local branch with resp
 
 + `==`: they are the same
 + `<<`: local is behind remote
-+ `>> local is ahead of remote
-+ `<> local is both ahead and behind of remote
++ `>>`: local is ahead of remote
++ `<>`: local is both ahead and behind of remote
 
 ## Installation
 
