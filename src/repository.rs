@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use git2::Status as FileStatus;
 use std::collections::HashSet;
 use std::fmt;
@@ -11,80 +12,96 @@ pub struct Repository {
 }
 
 impl Repository {
-    pub fn open<P: AsRef<Path>>(name: &str, path: P) -> Self {
-        let repository = git2::Repository::open(path).unwrap();
+    pub fn open<P: AsRef<Path>>(name: &str, path: P) -> Result<Self> {
+        let repository = git2::Repository::open(path)?;
         let mut status_options = git2::StatusOptions::new();
         status_options
             .show(git2::StatusShow::IndexAndWorkdir)
             .include_untracked(true)
             .include_ignored(false);
-        Self {
+        Ok(Self {
             inner: repository,
             name: name.into(),
             status_options,
-            status: Status::UNKNOWN,
-        }
+            status: Status::Unknown,
+        })
     }
     pub fn name<'a>(&'a self) -> &'a str {
         &self.name
     }
-    pub fn status<'a>(&'a mut self) -> &'a Status {
-        if let Status::UNKNOWN = self.status {
+    pub fn status<'a>(&'a mut self) -> Result<&'a Status> {
+        if let Status::Unknown = self.status {
             let status = self
                 .inner
-                .statuses(Some(&mut self.status_options))
-                .unwrap()
+                .statuses(Some(&mut self.status_options))?
                 .iter()
                 .fold(HashSet::new(), |mut set, s| {
                     set.insert(s.status());
                     set
                 });
-            self.status = Status::KNOWN(status);
+            self.status = Status::Known(status);
         }
-        &self.status
+        Ok(&self.status)
     }
-    pub fn branch_name(&self) -> String {
-        let head = self.inner.head().unwrap();
-        head.shorthand().unwrap().into()
-    }
-    fn head_branch(&self) -> git2::Branch {
-        self.inner
-            .find_branch(&self.branch_name(), git2::BranchType::Local)
-            .unwrap()
-    }
-    fn head_oid(&self) -> git2::Oid {
-        self.head_branch().into_reference().target().unwrap()
-    }
-    fn remote_oid(&self) -> git2::Oid {
-        let remote_branch = self.head_branch().upstream().unwrap();
-        remote_branch.into_reference().target().unwrap()
-    }
-    pub fn distance(&self) -> Distance {
-        match self
-            .inner
-            .graph_ahead_behind(self.head_oid(), self.remote_oid())
-            .unwrap()
-        {
-            (0, 0) => Distance::Same,
-            (a, b) if a > 0 && b == 0 => Distance::Ahead,
-            (a, b) if a == 0 && b > 0 => Distance::Behind,
-            _ => Distance::Both,
+    pub fn branch_name(&self) -> Option<String> {
+        if let Ok(head) = self.inner.head() {
+            head.shorthand().map(str::to_string)
+        } else {
+            None
         }
     }
-    pub fn commit_summary(&self) -> String {
-        let commit = self.inner.find_commit(self.head_oid()).unwrap();
-        commit.summary().unwrap().into()
+    fn head_branch(&self) -> Result<git2::Branch> {
+        Ok(self.inner.find_branch(
+            &self
+                .branch_name()
+                .ok_or_else(|| anyhow!("head is not a branch"))?,
+            git2::BranchType::Local,
+        )?)
+    }
+    fn head_oid(&self) -> Result<git2::Oid> {
+        Ok(self
+            .head_branch()?
+            .into_reference()
+            .target()
+            .ok_or_else(|| anyhow!("reference is indirect"))?)
+    }
+    fn remote_oid(&self) -> Result<git2::Oid> {
+        let remote_branch = self.head_branch()?.upstream()?;
+        Ok(remote_branch
+            .into_reference()
+            .target()
+            .ok_or_else(|| anyhow!("head is not a branch"))?)
+    }
+    pub fn distance(&self) -> Option<Distance> {
+        if let (Ok(head), Ok(remote)) = (self.head_oid(), self.remote_oid()) {
+            let distance = match self.inner.graph_ahead_behind(head, remote).ok()? {
+                (0, 0) => Distance::Same,
+                (a, b) if a > 0 && b == 0 => Distance::Ahead,
+                (a, b) if a == 0 && b > 0 => Distance::Behind,
+                _ => Distance::Both,
+            };
+            Some(distance)
+        } else {
+            None
+        }
+    }
+    pub fn commit_summary(&self) -> Result<String> {
+        let commit = self.inner.find_commit(self.head_oid()?)?;
+        Ok(commit
+            .summary()
+            .ok_or_else(|| anyhow!("commit summary is not valid UTF-8"))?
+            .into())
     }
 }
 
 pub enum Status {
-    KNOWN(HashSet<git2::Status>),
-    UNKNOWN,
+    Known(HashSet<git2::Status>),
+    Unknown,
 }
 
 impl Status {
     pub fn has_staged_files(&self) -> bool {
-        if let Status::KNOWN(status) = self {
+        if let Status::Known(status) = self {
             status.contains(&FileStatus::INDEX_NEW)
                 || status.contains(&FileStatus::INDEX_MODIFIED)
                 || status.contains(&FileStatus::INDEX_DELETED)
@@ -95,7 +112,7 @@ impl Status {
         }
     }
     pub fn has_unstaged_files(&self) -> bool {
-        if let Status::KNOWN(status) = self {
+        if let Status::Known(status) = self {
             status.contains(&FileStatus::WT_MODIFIED)
                 || status.contains(&FileStatus::WT_DELETED)
                 || status.contains(&FileStatus::WT_RENAMED)
@@ -105,7 +122,7 @@ impl Status {
         }
     }
     pub fn has_untracked_files(&self) -> bool {
-        if let Status::KNOWN(status) = self {
+        if let Status::Known(status) = self {
             status.contains(&FileStatus::WT_NEW)
         } else {
             false

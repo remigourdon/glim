@@ -8,7 +8,7 @@ It is inspired by [gita](https://github.com/nosarthur/gita.git).
 
 ## TODO
 
-+ [ ] Error handling (in progress)
++ [x] Error handling
 + [ ] Integration testing
 + [ ] CI
 + [ ] Publish to [crates.io](https://crates.io/)

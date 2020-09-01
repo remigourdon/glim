@@ -1,6 +1,7 @@
 mod config;
 mod repository;
 
+use anyhow::{anyhow, Context, Result};
 use clap::{crate_authors, crate_description, crate_name, crate_version, App, Arg, SubCommand};
 use config::Config;
 use directories::ProjectDirs;
@@ -8,10 +9,11 @@ use prettytable::{cell, format, row, Table};
 use repository::Repository;
 use std::path::Path;
 
-fn main() {
+fn main() -> Result<()> {
     // Get default config path
     let app_name = crate_name!();
-    let project_dirs = ProjectDirs::from("com", app_name, app_name).unwrap();
+    let project_dirs = ProjectDirs::from("com", app_name, app_name)
+        .ok_or_else(|| anyhow!("could not retrieve home directory from system"))?;
     let default_config_path = project_dirs.config_dir().join("config.toml");
 
     // Create clap app
@@ -71,51 +73,46 @@ fn main() {
     // Create config directory if it doesn't exist
     let config_dir = project_dirs.config_dir();
     if !config_dir.is_dir() {
-        std::fs::create_dir(config_dir).unwrap();
+        std::fs::create_dir(config_dir).context("failed to create config directory")?;
     }
 
     // Load config from file or create new one
     let config_path = Path::new(matches.value_of("config").unwrap());
     let mut config: Config = if config_path.is_file() {
-        Config::from_path(config_path)
+        Config::from_path(config_path).context("failed to load config")?
     } else {
         Config::new()
     };
 
-    // Save config
-    config.save(config_path);
+    // Track config modification
+    let mut modified = false;
 
     if let Some(matches) = matches.subcommand_matches("add") {
-        let mut added = 0;
         for path in matches.values_of("path").unwrap() {
             let path = Path::new(path);
-            if path.is_dir() && config.add_repository(path) {
-                added += 1;
-            }
-        }
-        if added > 0 {
-            config.save(config_path);
+            config.add_repository(path)?;
+            modified = true;
         }
     }
 
     if let Some(matches) = matches.subcommand_matches("remove") {
-        let mut removed = 0;
         for name in matches.values_of("name").unwrap() {
             if config.remove_repository_by_name(name) {
-                removed += 1;
+                modified = true;
             }
-        }
-        if removed > 0 {
-            config.save(config_path);
         }
     }
 
     if let Some(matches) = matches.subcommand_matches("rename") {
         let name = matches.value_of("name").unwrap();
         let new_name = matches.value_of("new_name").unwrap();
-        if config.rename_repository(name, new_name) {
-            config.save(config_path);
-        }
+        config.rename_repository(name, new_name)?;
+        modified = true;
+    }
+
+    // Save config
+    if modified {
+        config.save(config_path).context("failed to save config")?;
     }
 
     // Create table
@@ -133,19 +130,30 @@ fn main() {
     let repositories = config
         .repositories()
         .iter()
-        .map(|(name, path)| Repository::open(name, path));
+        .filter_map(|(name, path)| Repository::open(name, path).ok());
 
     // Fill table
     for mut repository in repositories {
+        // Get distance (ahead / behind remote)
+        let distance = match repository.distance() {
+            Some(distance) => distance.to_string(),
+            None => String::new(),
+        };
         table.add_row(row![
             repository.name(),
-            repository.branch_name(),
-            repository.status(),
-            repository.distance(),
-            repository.commit_summary(),
+            repository
+                .branch_name()
+                .unwrap_or_else(|| String::from("UNKNOWN")),
+            repository.status().context("failed to get status")?,
+            distance,
+            repository
+                .commit_summary()
+                .unwrap_or_else(|_| String::new())
         ]);
     }
 
     // Display table
     table.printstd();
+
+    Ok(())
 }
