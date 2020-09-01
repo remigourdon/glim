@@ -1,10 +1,11 @@
 mod config;
+mod repository;
 
 use clap::{crate_authors, crate_description, crate_name, crate_version, App, Arg, SubCommand};
 use config::Config;
 use directories::ProjectDirs;
-use git2::{Repository, Status, StatusOptions};
 use prettytable::{cell, format, row, Table};
+use repository::Repository;
 use std::path::Path;
 
 fn main() {
@@ -128,44 +129,21 @@ fn main() {
         .build();
     table.set_format(format);
 
-    // Prepare status options
-    let mut status_opts = StatusOptions::new();
-    status_opts
-        .show(git2::StatusShow::IndexAndWorkdir)
-        .include_untracked(true)
-        .include_ignored(false);
+    // Open repositories
+    let repositories = config
+        .repositories()
+        .iter()
+        .map(|(name, path)| Repository::open(name, path));
 
     // Fill table
-    for (name, path) in config.repositories().iter() {
-        let repository = Repository::open(path).unwrap();
-        let statuses = repository.statuses(Some(&mut status_opts)).unwrap();
-        let head = repository.head().unwrap();
-        let branch = head.shorthand().unwrap();
-        let staged = statuses.iter().any(|s| {
-            s.status() == Status::INDEX_NEW
-                || s.status() == Status::INDEX_MODIFIED
-                || s.status() == Status::INDEX_DELETED
-                || s.status() == Status::INDEX_RENAMED
-                || s.status() == Status::INDEX_TYPECHANGE
-        });
-        let unstaged = statuses.iter().any(|s| {
-            s.status() == Status::WT_MODIFIED
-                || s.status() == Status::WT_DELETED
-                || s.status() == Status::WT_RENAMED
-                || s.status() == Status::WT_TYPECHANGE
-        });
-        let untracked = statuses.iter().any(|s| s.status() == Status::WT_NEW);
-        let mut state = String::new();
-        if staged {
-            state.push('+');
-        }
-        if unstaged {
-            state.push('*');
-        }
-        if untracked {
-            state.push('_');
-        }
-        table.add_row(row![name, branch, state]);
+    for mut repository in repositories {
+        table.add_row(row![
+            repository.name(),
+            repository.branch_name(),
+            repository.status(),
+            repository.distance(),
+            repository.commit_summary(),
+        ]);
     }
 
     // Display table
