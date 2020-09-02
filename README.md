@@ -38,17 +38,17 @@ Finally, running the program without a subcommand results in the display of thei
 
 ```text
 $ glim
- one-cool-project      main        +_      ==    Update README.md
- another-idea          develop     *       <<    Initial commit
+ first-repo     +_    main       ==    origin/main     Update README.md
+ second-repo    *     develop    <<    fork/develop    Initial commit
 ```
 
-In the third column, the symbols indicate that the repo has:
+The following symbols indicate the status of the repository:
 
 + `+`: staged changes
 + `*`: unstaged changes
 + `_`: untracked files
 
-In the 4th column, the ahead/behind status of the current local branch with respect to its remote is indicated:
+Those symbols show whether the local branch is ahead and/or behind its tracked remote:
 
 + `==`: they are the same
 + `<<`: local is behind remote

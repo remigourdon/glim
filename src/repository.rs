@@ -26,7 +26,7 @@ impl Repository {
             status: Status::Unknown,
         })
     }
-    pub fn name<'a>(&'a self) -> &'a str {
+    pub fn name(&self) -> &str {
         &self.name
     }
     pub fn status<'a>(&'a mut self) -> Result<&'a Status> {
@@ -65,12 +65,24 @@ impl Repository {
             .target()
             .ok_or_else(|| anyhow!("reference is indirect"))?)
     }
+    fn remote_branch(&self) -> Result<git2::Branch> {
+        Ok(self.head_branch()?.upstream()?)
+    }
+    fn remote_reference(&self) -> Result<git2::Reference> {
+        Ok(self.remote_branch()?.into_reference())
+    }
+    pub fn remote_name(&self) -> Option<String> {
+        if let Ok(remote) = self.remote_reference() {
+            remote.shorthand().map(str::to_string)
+        } else {
+            None
+        }
+    }
     fn remote_oid(&self) -> Result<git2::Oid> {
-        let remote_branch = self.head_branch()?.upstream()?;
-        Ok(remote_branch
-            .into_reference()
+        Ok(self
+            .remote_reference()?
             .target()
-            .ok_or_else(|| anyhow!("head is not a branch"))?)
+            .ok_or_else(|| anyhow!("remote is not a branch"))?)
     }
     pub fn distance(&self) -> Option<Distance> {
         if let (Ok(head), Ok(remote)) = (self.head_oid(), self.remote_oid()) {

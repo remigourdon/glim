@@ -27,10 +27,10 @@ impl Config {
         let name = path
             .components()
             .last()
-            .ok_or(anyhow!("path is too short"))?
+            .ok_or_else(|| anyhow!("path is too short"))?
             .as_os_str()
             .to_str()
-            .ok_or(anyhow!("path is not valid UTF-8"))?;
+            .ok_or_else(|| anyhow!("path is not valid UTF-8"))?;
         if !self.repositories.contains_key(name) {
             self.repositories.insert(name.to_owned(), path.to_owned());
             Ok(())

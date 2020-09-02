@@ -141,11 +141,10 @@ fn main() -> Result<()> {
         };
         table.add_row(row![
             repository.name(),
-            repository
-                .branch_name()
-                .unwrap_or_else(|| String::from("UNKNOWN")),
             repository.status().context("failed to get status")?,
+            repository.branch_name().unwrap_or_default(),
             distance,
+            repository.remote_name().unwrap_or_default(),
             repository
                 .commit_summary()
                 .unwrap_or_else(|_| String::new())
