@@ -8,6 +8,8 @@ use directories::ProjectDirs;
 use prettytable::{cell, format, row, Table};
 use repository::Repository;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 fn main() -> Result<()> {
     // Get default config path
@@ -132,51 +134,57 @@ fn main() -> Result<()> {
         .build();
     table.set_format(format);
 
-    // Open repositories
-    let repositories: Vec<_> = config
-        .repositories()
-        .iter()
-        .filter_map(|(name, path)| Repository::open(name, path).ok())
-        .collect();
+    // Wrap table to share across threads
+    let table = Arc::new(Mutex::new(table));
 
-    // Fetch repositories unless disabled
-    for repository in &repositories {
-        if let Err(e) = repository.fetch() {
-            eprintln!("Failed to fetch '{}': {}", repository.name(), e);
-        }
+    let mut handles = Vec::new();
+
+    for (name, path) in config.repositories().iter() {
+        let name = name.clone();
+        let path = path.clone();
+        let table = table.clone();
+        let handle = thread::spawn(move || {
+            if let Ok(mut repository) = Repository::open(&name, path) {
+                if repository.fetch().is_ok() {
+                    // Get distance (ahead / behind remote)
+                    let distance = match repository.distance() {
+                        Some(distance) => distance.to_string(),
+                        None => String::new(),
+                    };
+
+                    // Get commit summary and truncate it
+                    let commit_summary = if let Ok(summary) = repository.commit_summary() {
+                        if summary.chars().count() > 50 {
+                            let truncated: String = summary.chars().take(50).collect();
+                            format!("{}...", truncated)
+                        } else {
+                            summary
+                        }
+                    } else {
+                        String::new()
+                    };
+
+                    let mut table = table.lock().unwrap();
+                    table.add_row(row![
+                        repository.name(),
+                        repository.status(),
+                        repository.branch_name().unwrap_or_default(),
+                        distance,
+                        repository.remote_name().unwrap_or_default(),
+                        commit_summary
+                    ]);
+                }
+            }
+        });
+        handles.push(handle);
     }
 
-    // Fill table
-    for mut repository in repositories {
-        // Get distance (ahead / behind remote)
-        let distance = match repository.distance() {
-            Some(distance) => distance.to_string(),
-            None => String::new(),
-        };
-
-        // Get commit summary and truncate it
-        let commit_summary = if let Ok(summary) = repository.commit_summary() {
-            if summary.chars().count() > 50 {
-                let truncated: String = summary.chars().take(50).collect();
-                format!("{}...", truncated)
-            } else {
-                summary
-            }
-        } else {
-            String::new()
-        };
-
-        table.add_row(row![
-            repository.name(),
-            repository.status().context("failed to get status")?,
-            repository.branch_name().unwrap_or_default(),
-            distance,
-            repository.remote_name().unwrap_or_default(),
-            commit_summary
-        ]);
+    for handle in handles {
+        handle.join().unwrap();
     }
 
     // Display table
+    let table = table.lock().unwrap();
     table.printstd();
 
     Ok(())

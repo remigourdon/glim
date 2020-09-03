@@ -29,19 +29,17 @@ impl Repository {
     pub fn name(&self) -> &str {
         &self.name
     }
-    pub fn status<'a>(&'a mut self) -> Result<&'a Status> {
+    pub fn status(&mut self) -> &Status {
         if let Status::Unknown = self.status {
-            let status = self
-                .inner
-                .statuses(Some(&mut self.status_options))?
-                .iter()
-                .fold(HashSet::new(), |mut set, s| {
+            if let Ok(statuses) = self.inner.statuses(Some(&mut self.status_options)) {
+                let status = statuses.iter().fold(HashSet::new(), |mut set, s| {
                     set.insert(s.status());
                     set
                 });
-            self.status = Status::Known(status);
+                self.status = Status::Known(status);
+            }
         }
-        Ok(&self.status)
+        &self.status
     }
     pub fn branch_name(&self) -> Option<String> {
         if let Ok(head) = self.inner.head() {
