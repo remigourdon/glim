@@ -30,8 +30,8 @@ This will produce a `cargo.toml` file of this form (which can also be edited man
 
 ```text
 [repositories]
-one-cool-project = "/home/remi/Projects/one-cool-project"
-another-idea = "/home/remi/Projects/ideas/another-idea"
+first-repo = "/home/remi/Projects/first-repo"
+second-repo = "/home/remi/Projects/ideas/another-repo"
 ```
 
 Finally, running the program without a subcommand results in the display of their status:

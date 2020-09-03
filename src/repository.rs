@@ -104,6 +104,32 @@ impl Repository {
             .ok_or_else(|| anyhow!("commit summary is not valid UTF-8"))?
             .into())
     }
+    pub fn fetch(&self) -> Result<()> {
+        let local_name = self
+            .inner
+            .head()?
+            .name()
+            .ok_or_else(|| anyhow!("local name is not valid UTF-8"))?
+            .to_owned();
+        let remote_name = self.inner.branch_upstream_remote(&local_name)?;
+        let mut remote = self.inner.find_remote(
+            remote_name
+                .as_str()
+                .ok_or_else(|| anyhow!("remote name is not valid UTF-8"))?,
+        )?;
+        let mut callbacks = git2::RemoteCallbacks::new();
+        callbacks.credentials(|_, _, _| {
+            git2::Cred::ssh_key(
+                "git",
+                None,
+                std::path::Path::new(&format!("{}/.ssh/id_rsa", std::env::var("HOME").unwrap())),
+                None,
+            )
+        });
+        let mut fo = git2::FetchOptions::new();
+        fo.remote_callbacks(callbacks);
+        Ok(remote.fetch(&[&local_name], Some(&mut fo), None)?)
+    }
 }
 
 pub enum Status {

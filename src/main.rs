@@ -30,6 +30,12 @@ fn main() -> Result<()> {
                 .help("Sets a custom config file")
                 .takes_value(true),
         )
+        .arg(
+            Arg::with_name("nofetch")
+                .short("F")
+                .long("no-fetch")
+                .help("Do not fetch"),
+        )
         .subcommand(
             SubCommand::with_name("add")
                 .about("Add new repositories")
@@ -127,10 +133,18 @@ fn main() -> Result<()> {
     table.set_format(format);
 
     // Open repositories
-    let repositories = config
+    let repositories: Vec<_> = config
         .repositories()
         .iter()
-        .filter_map(|(name, path)| Repository::open(name, path).ok());
+        .filter_map(|(name, path)| Repository::open(name, path).ok())
+        .collect();
+
+    // Fetch repositories unless disabled
+    for repository in &repositories {
+        if let Err(e) = repository.fetch() {
+            eprintln!("Failed to fetch '{}': {}", repository.name(), e);
+        }
+    }
 
     // Fill table
     for mut repository in repositories {
@@ -139,15 +153,26 @@ fn main() -> Result<()> {
             Some(distance) => distance.to_string(),
             None => String::new(),
         };
+
+        // Get commit summary and truncate it
+        let commit_summary = if let Ok(summary) = repository.commit_summary() {
+            if summary.chars().count() > 50 {
+                let truncated: String = summary.chars().take(50).collect();
+                format!("{}...", truncated)
+            } else {
+                summary
+            }
+        } else {
+            String::new()
+        };
+
         table.add_row(row![
             repository.name(),
             repository.status().context("failed to get status")?,
             repository.branch_name().unwrap_or_default(),
             distance,
             repository.remote_name().unwrap_or_default(),
-            repository
-                .commit_summary()
-                .unwrap_or_else(|_| String::new())
+            commit_summary
         ]);
     }
 
