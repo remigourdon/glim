@@ -82,17 +82,17 @@ impl Repository {
             .target()
             .ok_or_else(|| anyhow!("remote is not a branch"))?)
     }
-    pub fn distance(&self) -> Option<Distance> {
+    pub fn distance(&self) -> Distance {
         if let (Ok(head), Ok(remote)) = (self.head_oid(), self.remote_oid()) {
-            let distance = match self.inner.graph_ahead_behind(head, remote).ok()? {
-                (0, 0) => Distance::Same,
-                (a, b) if a > 0 && b == 0 => Distance::Ahead,
-                (a, b) if a == 0 && b > 0 => Distance::Behind,
-                _ => Distance::Both,
-            };
-            Some(distance)
+            match self.inner.graph_ahead_behind(head, remote) {
+                Ok((0, 0)) => Distance::Same,
+                Ok((a, b)) if a > 0 && b == 0 => Distance::Ahead,
+                Ok((a, b)) if a == 0 && b > 0 => Distance::Behind,
+                Ok((_, _)) => Distance::Both,
+                Err(_) => Distance::Unknown,
+            }
         } else {
-            None
+            Distance::Unknown
         }
     }
     pub fn commit_summary(&self) -> Result<String> {
@@ -187,6 +187,7 @@ pub enum Distance {
     Ahead,
     Behind,
     Both,
+    Unknown,
 }
 
 impl fmt::Display for Distance {
@@ -196,6 +197,7 @@ impl fmt::Display for Distance {
             Distance::Ahead => ">>",
             Distance::Behind => "<<",
             Distance::Both => "<>",
+            Distance::Unknown => "",
         };
         write!(f, "{}", symbol)
     }

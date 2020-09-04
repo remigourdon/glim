@@ -146,12 +146,6 @@ fn main() -> Result<()> {
         let handle = thread::spawn(move || {
             if let Ok(mut repository) = Repository::open(&name, path) {
                 if repository.fetch().is_ok() {
-                    // Get distance (ahead / behind remote)
-                    let distance = match repository.distance() {
-                        Some(distance) => distance.to_string(),
-                        None => String::new(),
-                    };
-
                     // Get commit summary and truncate it
                     let commit_summary = if let Ok(summary) = repository.commit_summary() {
                         if summary.chars().count() > 50 {
@@ -169,7 +163,7 @@ fn main() -> Result<()> {
                         repository.name(),
                         repository.status(),
                         repository.branch_name().unwrap_or_default(),
-                        distance,
+                        repository.distance(),
                         repository.remote_name().unwrap_or_default(),
                         commit_summary
                     ]);
