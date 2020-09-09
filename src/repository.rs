@@ -6,13 +6,12 @@ use std::path::Path;
 
 pub struct Repository {
     inner: git2::Repository,
-    name: String,
     status_options: git2::StatusOptions,
     status: Status,
 }
 
 impl Repository {
-    pub fn open<P: AsRef<Path>>(name: &str, path: P) -> Result<Self> {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let repository = git2::Repository::open(path)?;
         let mut status_options = git2::StatusOptions::new();
         status_options
@@ -21,13 +20,9 @@ impl Repository {
             .include_ignored(false);
         Ok(Self {
             inner: repository,
-            name: name.into(),
             status_options,
             status: Status::Unknown,
         })
-    }
-    pub fn name(&self) -> &str {
-        &self.name
     }
     pub fn status(&mut self) -> &Status {
         if let Status::Unknown = self.status {

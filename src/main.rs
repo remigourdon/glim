@@ -5,10 +5,10 @@ use anyhow::{anyhow, Context, Result};
 use clap::{crate_authors, crate_description, crate_name, crate_version, App, Arg, SubCommand};
 use config::Config;
 use directories::ProjectDirs;
-use prettytable::{cell, format, row, Table};
+use prettytable::{format, Cell, Row, Table};
 use repository::Repository;
+use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use std::thread;
 
 fn main() -> Result<()> {
@@ -123,28 +123,14 @@ fn main() -> Result<()> {
         config.save(config_path).context("failed to save config")?;
     }
 
-    // Create table
-    let mut table = Table::new();
-
-    // Format table
-    let format = format::FormatBuilder::new()
-        .column_separator(' ')
-        .borders(' ')
-        .padding(0, 3)
-        .build();
-    table.set_format(format);
-
-    // Wrap table to share across threads
-    let table = Arc::new(Mutex::new(table));
-
     let mut handles = Vec::new();
 
     for (name, path) in config.repositories().iter() {
         let name = name.clone();
         let path = path.clone();
-        let table = table.clone();
         let handle = thread::spawn(move || {
-            if let Ok(mut repository) = Repository::open(&name, path) {
+            let mut elements = Vec::new();
+            if let Ok(mut repository) = Repository::open(path) {
                 if repository.fetch().is_ok() {
                     // Get commit summary and truncate it
                     let commit_summary = if let Ok(summary) = repository.commit_summary() {
@@ -157,28 +143,45 @@ fn main() -> Result<()> {
                     } else {
                         String::new()
                     };
-
-                    let mut table = table.lock().unwrap();
-                    table.add_row(row![
-                        repository.name(),
-                        repository.status(),
-                        repository.branch_name().unwrap_or_default(),
-                        repository.distance(),
-                        repository.remote_name().unwrap_or_default(),
-                        commit_summary
-                    ]);
+                    elements.push(repository.status().to_string());
+                    elements.push(repository.branch_name().unwrap_or_default());
+                    elements.push(repository.distance().to_string());
+                    elements.push(repository.remote_name().unwrap_or_default());
+                    elements.push(commit_summary);
                 }
             }
+            (name, elements)
         });
         handles.push(handle);
     }
 
+    // Create table
+    let mut table = Table::new();
+
+    // Format table
+    let format = format::FormatBuilder::new()
+        .column_separator(' ')
+        .borders(' ')
+        .padding(0, 3)
+        .build();
+    table.set_format(format);
+
+    // Join threads and collect data in a sorted map
+    let mut sorted_map = BTreeMap::new();
     for handle in handles {
-        handle.join().unwrap();
+        let (name, elements) = handle.join().unwrap();
+        sorted_map.insert(name, elements);
+    }
+
+    // Display in a table
+    for (name, elements) in sorted_map.iter() {
+        let mut elements: Vec<_> = elements.iter().map(|e| Cell::new(e)).collect();
+        let mut cells = vec![Cell::new(name)];
+        cells.append(&mut elements);
+        table.add_row(Row::new(cells));
     }
 
     // Display table
-    let table = table.lock().unwrap();
     table.printstd();
 
     Ok(())
