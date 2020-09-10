@@ -17,3 +17,4 @@ clap = "2"
 serde = { version = "1.0", features = ["derive"] }
 prettytable-rs = { version = "0.8", default-features = false }
 threadpool = "1.0"
+indicatif = "0.15.0"

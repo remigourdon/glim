@@ -5,6 +5,7 @@ use anyhow::{anyhow, Context, Result};
 use clap::{crate_authors, crate_description, crate_name, crate_version, App, Arg, SubCommand};
 use config::Config;
 use directories::ProjectDirs;
+use indicatif::{ProgressBar, ProgressStyle};
 use prettytable::{format, Cell, Row, Table};
 use repository::Repository;
 use std::collections::BTreeMap;
@@ -140,11 +141,21 @@ fn main() -> Result<()> {
     let (tx, rx) = channel();
     let num_jobs = config.repository_count();
 
+    // Create progress bar
+    let pb = ProgressBar::new(num_jobs as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{prefix} [{bar:60}] {pos}/{len}: {msg}")
+            .progress_chars("=> "),
+    );
+    pb.set_prefix("Processing...");
+
     // Open repositories and process on thread pool
     for (name, path) in config.repositories().iter() {
         let name = name.clone();
         let path = path.clone();
         let tx = tx.clone();
+        let pb = pb.clone();
 
         pool.execute(move || {
             let mut elements = Vec::new();
@@ -171,9 +182,23 @@ fn main() -> Result<()> {
                     elements.push(commit_summary);
                 }
             }
+            pb.set_message(&name);
+            pb.inc(1);
             tx.send((name, elements)).unwrap();
         });
     }
+
+    // Join threads and collect data in a sorted map
+    let sorted_map = rx
+        .iter()
+        .take(num_jobs)
+        .fold(BTreeMap::new(), |mut map, (name, elements)| {
+            map.insert(name, elements);
+            map
+        });
+
+    // Clear progress bar
+    pb.finish_and_clear();
 
     // Create table
     let mut table = Table::new();
@@ -185,15 +210,6 @@ fn main() -> Result<()> {
         .padding(0, 3)
         .build();
     table.set_format(format);
-
-    // Join threads and collect data in a sorted map
-    let sorted_map = rx
-        .iter()
-        .take(num_jobs)
-        .fold(BTreeMap::new(), |mut map, (name, elements)| {
-            map.insert(name, elements);
-            map
-        });
 
     // Display in a table
     for (name, elements) in sorted_map.iter() {
