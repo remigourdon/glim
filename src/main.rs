@@ -9,7 +9,9 @@ use prettytable::{format, Cell, Row, Table};
 use repository::Repository;
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::thread;
+use std::str::FromStr;
+use std::sync::mpsc::channel;
+use threadpool::ThreadPool;
 
 fn main() -> Result<()> {
     // Get default config path
@@ -37,6 +39,14 @@ fn main() -> Result<()> {
                 .short("F")
                 .long("no-fetch")
                 .help("Do not fetch"),
+        )
+        .arg(
+            Arg::with_name("workers")
+                .long("workers")
+                .value_name("NUM_WORKERS")
+                .default_value("4")
+                .help("Number of workers")
+                .takes_value(true),
         )
         .subcommand(
             SubCommand::with_name("add")
@@ -123,14 +133,25 @@ fn main() -> Result<()> {
         config.save(config_path).context("failed to save config")?;
     }
 
-    let mut handles = Vec::new();
+    // Create thread pool
+    let num_workers = usize::from_str(matches.value_of("workers").unwrap())
+        .context("invalid number of workers")?;
+    let pool = ThreadPool::new(num_workers);
+    let (tx, rx) = channel();
+    let num_jobs = config.repository_count();
 
+    // Open repositories and process on thread pool
     for (name, path) in config.repositories().iter() {
         let name = name.clone();
         let path = path.clone();
-        let handle = thread::spawn(move || {
+        let tx = tx.clone();
+
+        pool.execute(move || {
             let mut elements = Vec::new();
+
+            // Attempt to open the repository
             if let Ok(mut repository) = Repository::open(path) {
+                // Attempt to fetch from repository
                 if repository.fetch().is_ok() {
                     // Get commit summary and truncate it
                     let commit_summary = if let Ok(summary) = repository.commit_summary() {
@@ -150,9 +171,8 @@ fn main() -> Result<()> {
                     elements.push(commit_summary);
                 }
             }
-            (name, elements)
+            tx.send((name, elements)).unwrap();
         });
-        handles.push(handle);
     }
 
     // Create table
@@ -167,11 +187,13 @@ fn main() -> Result<()> {
     table.set_format(format);
 
     // Join threads and collect data in a sorted map
-    let mut sorted_map = BTreeMap::new();
-    for handle in handles {
-        let (name, elements) = handle.join().unwrap();
-        sorted_map.insert(name, elements);
-    }
+    let sorted_map = rx
+        .iter()
+        .take(num_jobs)
+        .fold(BTreeMap::new(), |mut map, (name, elements)| {
+            map.insert(name, elements);
+            map
+        });
 
     // Display in a table
     for (name, elements) in sorted_map.iter() {

@@ -22,6 +22,9 @@ impl Config {
     pub fn repositories(&self) -> &HashMap<String, PathBuf> {
         &self.repositories
     }
+    pub fn repository_count(&self) -> usize {
+        self.repositories.len()
+    }
     pub fn add_repository<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
         let path = path.as_ref();
         let name = path
