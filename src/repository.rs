@@ -6,13 +6,12 @@ use std::path::Path;
 
 pub struct Repository {
     inner: git2::Repository,
-    name: String,
     status_options: git2::StatusOptions,
     status: Status,
 }
 
 impl Repository {
-    pub fn open<P: AsRef<Path>>(name: &str, path: P) -> Result<Self> {
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let repository = git2::Repository::open(path)?;
         let mut status_options = git2::StatusOptions::new();
         status_options
@@ -21,27 +20,21 @@ impl Repository {
             .include_ignored(false);
         Ok(Self {
             inner: repository,
-            name: name.into(),
             status_options,
             status: Status::Unknown,
         })
     }
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-    pub fn status<'a>(&'a mut self) -> Result<&'a Status> {
+    pub fn status(&mut self) -> &Status {
         if let Status::Unknown = self.status {
-            let status = self
-                .inner
-                .statuses(Some(&mut self.status_options))?
-                .iter()
-                .fold(HashSet::new(), |mut set, s| {
+            if let Ok(statuses) = self.inner.statuses(Some(&mut self.status_options)) {
+                let status = statuses.iter().fold(HashSet::new(), |mut set, s| {
                     set.insert(s.status());
                     set
                 });
-            self.status = Status::Known(status);
+                self.status = Status::Known(status);
+            }
         }
-        Ok(&self.status)
+        &self.status
     }
     pub fn branch_name(&self) -> Option<String> {
         if let Ok(head) = self.inner.head() {
@@ -84,17 +77,17 @@ impl Repository {
             .target()
             .ok_or_else(|| anyhow!("remote is not a branch"))?)
     }
-    pub fn distance(&self) -> Option<Distance> {
+    pub fn distance(&self) -> Distance {
         if let (Ok(head), Ok(remote)) = (self.head_oid(), self.remote_oid()) {
-            let distance = match self.inner.graph_ahead_behind(head, remote).ok()? {
-                (0, 0) => Distance::Same,
-                (a, b) if a > 0 && b == 0 => Distance::Ahead,
-                (a, b) if a == 0 && b > 0 => Distance::Behind,
-                _ => Distance::Both,
-            };
-            Some(distance)
+            match self.inner.graph_ahead_behind(head, remote) {
+                Ok((0, 0)) => Distance::Same,
+                Ok((a, b)) if a > 0 && b == 0 => Distance::Ahead,
+                Ok((a, b)) if a == 0 && b > 0 => Distance::Behind,
+                Ok((_, _)) => Distance::Both,
+                Err(_) => Distance::Unknown,
+            }
         } else {
-            None
+            Distance::Unknown
         }
     }
     pub fn commit_summary(&self) -> Result<String> {
@@ -189,6 +182,7 @@ pub enum Distance {
     Ahead,
     Behind,
     Both,
+    Unknown,
 }
 
 impl fmt::Display for Distance {
@@ -198,6 +192,7 @@ impl fmt::Display for Distance {
             Distance::Ahead => ">>",
             Distance::Behind => "<<",
             Distance::Both => "<>",
+            Distance::Unknown => "",
         };
         write!(f, "{}", symbol)
     }

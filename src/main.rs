@@ -5,9 +5,14 @@ use anyhow::{anyhow, Context, Result};
 use clap::{crate_authors, crate_description, crate_name, crate_version, App, Arg, SubCommand};
 use config::Config;
 use directories::ProjectDirs;
-use prettytable::{cell, format, row, Table};
+use indicatif::{ProgressBar, ProgressStyle};
+use prettytable::{format, Cell, Row, Table};
 use repository::Repository;
+use std::collections::BTreeMap;
 use std::path::Path;
+use std::str::FromStr;
+use std::sync::mpsc::channel;
+use threadpool::ThreadPool;
 
 fn main() -> Result<()> {
     // Get default config path
@@ -35,6 +40,14 @@ fn main() -> Result<()> {
                 .short("F")
                 .long("no-fetch")
                 .help("Do not fetch"),
+        )
+        .arg(
+            Arg::with_name("workers")
+                .long("workers")
+                .value_name("NUM_WORKERS")
+                .default_value("4")
+                .help("Number of workers")
+                .takes_value(true),
         )
         .subcommand(
             SubCommand::with_name("add")
@@ -121,6 +134,72 @@ fn main() -> Result<()> {
         config.save(config_path).context("failed to save config")?;
     }
 
+    // Create thread pool
+    let num_workers = usize::from_str(matches.value_of("workers").unwrap())
+        .context("invalid number of workers")?;
+    let pool = ThreadPool::new(num_workers);
+    let (tx, rx) = channel();
+    let num_jobs = config.repository_count();
+
+    // Create progress bar
+    let pb = ProgressBar::new(num_jobs as u64);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{prefix} [{bar:60}] {pos}/{len}: {msg}")
+            .progress_chars("=> "),
+    );
+    pb.set_prefix("Processing...");
+
+    // Open repositories and process on thread pool
+    for (name, path) in config.repositories().iter() {
+        let name = name.clone();
+        let path = path.clone();
+        let tx = tx.clone();
+        let pb = pb.clone();
+
+        pool.execute(move || {
+            let mut elements = Vec::new();
+
+            // Attempt to open the repository
+            if let Ok(mut repository) = Repository::open(path) {
+                // Attempt to fetch from repository
+                if repository.fetch().is_ok() {
+                    // Get commit summary and truncate it
+                    let commit_summary = if let Ok(summary) = repository.commit_summary() {
+                        if summary.chars().count() > 50 {
+                            let truncated: String = summary.chars().take(50).collect();
+                            format!("{}...", truncated)
+                        } else {
+                            summary
+                        }
+                    } else {
+                        String::new()
+                    };
+                    elements.push(repository.status().to_string());
+                    elements.push(repository.branch_name().unwrap_or_default());
+                    elements.push(repository.distance().to_string());
+                    elements.push(repository.remote_name().unwrap_or_default());
+                    elements.push(commit_summary);
+                }
+            }
+            pb.set_message(&name);
+            pb.inc(1);
+            tx.send((name, elements)).unwrap();
+        });
+    }
+
+    // Join threads and collect data in a sorted map
+    let sorted_map = rx
+        .iter()
+        .take(num_jobs)
+        .fold(BTreeMap::new(), |mut map, (name, elements)| {
+            map.insert(name, elements);
+            map
+        });
+
+    // Clear progress bar
+    pb.finish_and_clear();
+
     // Create table
     let mut table = Table::new();
 
@@ -132,48 +211,12 @@ fn main() -> Result<()> {
         .build();
     table.set_format(format);
 
-    // Open repositories
-    let repositories: Vec<_> = config
-        .repositories()
-        .iter()
-        .filter_map(|(name, path)| Repository::open(name, path).ok())
-        .collect();
-
-    // Fetch repositories unless disabled
-    for repository in &repositories {
-        if let Err(e) = repository.fetch() {
-            eprintln!("Failed to fetch '{}': {}", repository.name(), e);
-        }
-    }
-
-    // Fill table
-    for mut repository in repositories {
-        // Get distance (ahead / behind remote)
-        let distance = match repository.distance() {
-            Some(distance) => distance.to_string(),
-            None => String::new(),
-        };
-
-        // Get commit summary and truncate it
-        let commit_summary = if let Ok(summary) = repository.commit_summary() {
-            if summary.chars().count() > 50 {
-                let truncated: String = summary.chars().take(50).collect();
-                format!("{}...", truncated)
-            } else {
-                summary
-            }
-        } else {
-            String::new()
-        };
-
-        table.add_row(row![
-            repository.name(),
-            repository.status().context("failed to get status")?,
-            repository.branch_name().unwrap_or_default(),
-            distance,
-            repository.remote_name().unwrap_or_default(),
-            commit_summary
-        ]);
+    // Display in a table
+    for (name, elements) in sorted_map.iter() {
+        let mut elements: Vec<_> = elements.iter().map(|e| Cell::new(e)).collect();
+        let mut cells = vec![Cell::new(name)];
+        cells.append(&mut elements);
+        table.add_row(Row::new(cells));
     }
 
     // Display table

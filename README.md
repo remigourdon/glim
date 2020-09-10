@@ -12,9 +12,9 @@ It is inspired by [gita](https://github.com/nosarthur/gita.git).
 + [ ] Integration testing
 + [ ] CI
 + [ ] Publish to [crates.io](https://crates.io/)
-+ [ ] Better handling of large repositories
-    + [ ] Parallelization
-    + [ ] Progress feedback (spinners?)
++ [x] Better handling of large repositories
+    + [x] Parallelization
+    + [x] Progress feedback
 
 ## Usage
 
