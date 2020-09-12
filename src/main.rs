@@ -134,12 +134,21 @@ fn main() -> Result<()> {
         config.save(config_path).context("failed to save config")?;
     }
 
+    // Attempt to open repositories
+    let mut repositories = Vec::with_capacity(config.repository_count());
+    for (name, path) in config.repositories() {
+        match Repository::open(name, path) {
+            Ok(repository) => repositories.push(repository),
+            Err(e) => eprintln!("Could not open '{}': {}", name, e),
+        }
+    }
+
     // Create thread pool
     let num_workers = usize::from_str(matches.value_of("workers").unwrap())
         .context("invalid number of workers")?;
     let pool = ThreadPool::new(num_workers);
     let (tx, rx) = channel();
-    let num_jobs = config.repository_count();
+    let num_jobs = repositories.len();
 
     // Create progress bar
     let pb = ProgressBar::new(num_jobs as u64);
@@ -153,43 +162,36 @@ fn main() -> Result<()> {
     // To fetch or not to fetch
     let do_fetch = !matches.is_present("nofetch");
 
-    // Open repositories and process on thread pool
-    for (name, path) in config.repositories().iter() {
-        let name = name.clone();
-        let path = path.clone();
+    // Process repositories on thread pool
+    for repository in repositories.into_iter() {
+        let mut repository = repository;
         let tx = tx.clone();
         let pb = pb.clone();
 
         pool.execute(move || {
-            // Attempt to open the repository
-            let repository = if let Ok(mut repository) = Repository::open(path) {
-                // Attempt to fetch from repository
-                if do_fetch {
-                    let _ = repository.fetch();
-                }
-                // Compute status now since it can be slow
-                let _ = repository.compute_status();
-                Some(repository)
-            } else {
-                None
-            };
+            // Attempt to fetch from repository
+            if do_fetch {
+                let _ = repository.fetch();
+            }
+            // Compute status now since it can be slow
+            let _ = repository.compute_status();
 
             // Update progress bar
-            pb.set_message(&name);
+            pb.set_message(repository.name());
             pb.inc(1);
 
-            tx.send((name, repository)).unwrap();
+            tx.send(repository).unwrap();
         });
     }
 
     // Join threads and collect data in a sorted map
-    let sorted_map =
-        rx.iter()
-            .take(num_jobs)
-            .fold(BTreeMap::new(), |mut map, (name, repository)| {
-                map.insert(name, repository);
-                map
-            });
+    let sorted_map = rx
+        .iter()
+        .take(num_jobs)
+        .fold(BTreeMap::new(), |mut map, repository| {
+            map.insert(repository.name().to_string(), repository);
+            map
+        });
 
     // Clear progress bar
     pb.finish_and_clear();
@@ -207,33 +209,31 @@ fn main() -> Result<()> {
 
     // Add rows to table
     for (name, repository) in sorted_map.iter() {
-        if let Some(repository) = repository {
-            // Get status
-            let status = if let Some(status) = repository.status() {
-                status.to_string()
-            } else {
-                String::new()
-            };
-            // Get distance between local and upstream
-            let distance = if let Some(distance) = repository.distance() {
-                distance.to_string()
-            } else {
-                String::new()
-            };
-            table.add_row(row![
-                name,
-                status,
-                repository.branch_name().unwrap_or_default().to_string(),
-                distance,
-                repository.remote_name().unwrap_or_default().to_string(),
-                repository
-                    .commit_summary()
-                    .unwrap_or_default()
-                    .chars()
-                    .take(50)
-                    .collect::<String>()
-            ]);
-        }
+        // Get status
+        let status = if let Some(status) = repository.status() {
+            status.to_string()
+        } else {
+            String::new()
+        };
+        // Get distance between local and upstream
+        let distance = if let Some(distance) = repository.distance() {
+            distance.to_string()
+        } else {
+            String::new()
+        };
+        table.add_row(row![
+            name,
+            status,
+            repository.branch_name().unwrap_or_default().to_string(),
+            distance,
+            repository.remote_name().unwrap_or_default().to_string(),
+            repository
+                .commit_summary()
+                .unwrap_or_default()
+                .chars()
+                .take(50)
+                .collect::<String>()
+        ]);
     }
 
     // Display table

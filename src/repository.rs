@@ -7,16 +7,21 @@ use std::sync::{Arc, Mutex};
 
 pub struct Repository {
     inner: Arc<Mutex<git2::Repository>>,
+    name: String,
     status: Option<Status>,
 }
 
 impl Repository {
-    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub fn open<P: AsRef<Path>>(name: &str, path: P) -> Result<Self> {
         let repository = git2::Repository::open(path)?;
         Ok(Self {
             inner: Arc::new(Mutex::new(repository)),
+            name: name.to_string(),
             status: None,
         })
+    }
+    pub fn name(&self) -> &str {
+        &self.name
     }
     pub fn fetch(&self) -> Result<()> {
         let inner = self.inner.lock().unwrap();
