@@ -60,7 +60,5 @@ Those symbols show whether the local branch is ahead and/or behind its tracked r
 At the moment, `glim` can be installed from source as follows:
 
 ```sh
-git clone https://github.com/remigourdon/glim.git
-cd glim/
-cargo install --path .
+cargo install --git https://github.com/remigourdon/glim.git --branch main
 ```
