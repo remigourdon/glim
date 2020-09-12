@@ -103,35 +103,43 @@ fn main() -> Result<()> {
         Config::new()
     };
 
-    // Track config modification
-    let mut modified = false;
+    if let Some(subcommand_name) = matches.subcommand_name() {
+        // Track config modification
+        let mut modified = false;
 
-    if let Some(matches) = matches.subcommand_matches("add") {
-        for path in matches.values_of("path").unwrap() {
-            let path = Path::new(path);
-            config.add_repository(path)?;
-            modified = true;
-        }
-    }
-
-    if let Some(matches) = matches.subcommand_matches("remove") {
-        for name in matches.values_of("name").unwrap() {
-            if config.remove_repository_by_name(name) {
+        match (subcommand_name, matches.subcommand_matches(subcommand_name)) {
+            ("add", Some(matches)) => {
+                for path in matches.values_of("path").unwrap() {
+                    let path = Path::new(path);
+                    config.add_repository(path)?;
+                    modified = true;
+                }
+            }
+            ("remove", Some(matches)) => {
+                for name in matches.values_of("name").unwrap() {
+                    if config.remove_repository_by_name(name) {
+                        modified = true;
+                    }
+                }
+            }
+            ("rename", Some(matches)) => {
+                let name = matches.value_of("name").unwrap();
+                let new_name = matches.value_of("new_name").unwrap();
+                config.rename_repository(name, new_name)?;
                 modified = true;
             }
+            (invalid_subcommand, _) => {
+                eprintln!("Invalid subcommand '{}'", invalid_subcommand);
+            }
         }
-    }
 
-    if let Some(matches) = matches.subcommand_matches("rename") {
-        let name = matches.value_of("name").unwrap();
-        let new_name = matches.value_of("new_name").unwrap();
-        config.rename_repository(name, new_name)?;
-        modified = true;
-    }
+        // Save config
+        if modified {
+            config.save(config_path).context("failed to save config")?;
+        }
 
-    // Save config
-    if modified {
-        config.save(config_path).context("failed to save config")?;
+        // Exit without further processing
+        std::process::exit(0);
     }
 
     // Attempt to open repositories
