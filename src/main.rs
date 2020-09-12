@@ -6,7 +6,7 @@ use clap::{crate_authors, crate_description, crate_name, crate_version, App, Arg
 use config::Config;
 use directories::ProjectDirs;
 use indicatif::{ProgressBar, ProgressStyle};
-use prettytable::{format, Cell, Row, Table};
+use prettytable::{cell, format, row, Table};
 use repository::Repository;
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -150,6 +150,9 @@ fn main() -> Result<()> {
     );
     pb.set_prefix("Processing...");
 
+    // To fetch or not to fetch
+    let do_fetch = !matches.is_present("nofetch");
+
     // Open repositories and process on thread pool
     for (name, path) in config.repositories().iter() {
         let name = name.clone();
@@ -158,44 +161,35 @@ fn main() -> Result<()> {
         let pb = pb.clone();
 
         pool.execute(move || {
-            let mut elements = Vec::new();
-
             // Attempt to open the repository
-            if let Ok(mut repository) = Repository::open(path) {
+            let repository = if let Ok(mut repository) = Repository::open(path) {
                 // Attempt to fetch from repository
-                if repository.fetch().is_ok() {
-                    // Get commit summary and truncate it
-                    let commit_summary = if let Ok(summary) = repository.commit_summary() {
-                        if summary.chars().count() > 50 {
-                            let truncated: String = summary.chars().take(50).collect();
-                            format!("{}...", truncated)
-                        } else {
-                            summary
-                        }
-                    } else {
-                        String::new()
-                    };
-                    elements.push(repository.status().to_string());
-                    elements.push(repository.branch_name().unwrap_or_default());
-                    elements.push(repository.distance().to_string());
-                    elements.push(repository.remote_name().unwrap_or_default());
-                    elements.push(commit_summary);
+                if do_fetch {
+                    let _ = repository.fetch();
                 }
-            }
+                // Compute status now since it can be slow
+                let _ = repository.compute_status();
+                Some(repository)
+            } else {
+                None
+            };
+
+            // Update progress bar
             pb.set_message(&name);
             pb.inc(1);
-            tx.send((name, elements)).unwrap();
+
+            tx.send((name, repository)).unwrap();
         });
     }
 
     // Join threads and collect data in a sorted map
-    let sorted_map = rx
-        .iter()
-        .take(num_jobs)
-        .fold(BTreeMap::new(), |mut map, (name, elements)| {
-            map.insert(name, elements);
-            map
-        });
+    let sorted_map =
+        rx.iter()
+            .take(num_jobs)
+            .fold(BTreeMap::new(), |mut map, (name, repository)| {
+                map.insert(name, repository);
+                map
+            });
 
     // Clear progress bar
     pb.finish_and_clear();
@@ -211,12 +205,29 @@ fn main() -> Result<()> {
         .build();
     table.set_format(format);
 
-    // Display in a table
-    for (name, elements) in sorted_map.iter() {
-        let mut elements: Vec<_> = elements.iter().map(|e| Cell::new(e)).collect();
-        let mut cells = vec![Cell::new(name)];
-        cells.append(&mut elements);
-        table.add_row(Row::new(cells));
+    // Add rows to table
+    for (name, repository) in sorted_map.iter() {
+        if let Some(repository) = repository {
+            // Get distance between local and upstream
+            let distance = if let Some(distance) = repository.distance() {
+                distance.to_string()
+            } else {
+                String::new()
+            };
+            table.add_row(row![
+                name,
+                repository.status().to_string(),
+                repository.branch_name().unwrap_or_default().to_string(),
+                distance,
+                repository.remote_name().unwrap_or_default().to_string(),
+                repository
+                    .commit_summary()
+                    .unwrap_or_default()
+                    .chars()
+                    .take(50)
+                    .collect::<String>()
+            ]);
+        }
     }
 
     // Display table

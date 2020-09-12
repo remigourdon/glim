@@ -3,113 +3,36 @@ use git2::Status as FileStatus;
 use std::collections::HashSet;
 use std::fmt;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 pub struct Repository {
-    inner: git2::Repository,
-    status_options: git2::StatusOptions,
+    inner: Arc<Mutex<git2::Repository>>,
     status: Status,
 }
 
 impl Repository {
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
         let repository = git2::Repository::open(path)?;
-        let mut status_options = git2::StatusOptions::new();
-        status_options
-            .show(git2::StatusShow::IndexAndWorkdir)
-            .include_untracked(true)
-            .include_ignored(false);
         Ok(Self {
-            inner: repository,
-            status_options,
+            inner: Arc::new(Mutex::new(repository)),
             status: Status::Unknown,
         })
     }
-    pub fn status(&mut self) -> &Status {
-        if let Status::Unknown = self.status {
-            if let Ok(statuses) = self.inner.statuses(Some(&mut self.status_options)) {
-                let status = statuses.iter().fold(HashSet::new(), |mut set, s| {
-                    set.insert(s.status());
-                    set
-                });
-                self.status = Status::Known(status);
-            }
-        }
-        &self.status
-    }
-    pub fn branch_name(&self) -> Option<String> {
-        if let Ok(head) = self.inner.head() {
-            head.shorthand().map(str::to_string)
-        } else {
-            None
-        }
-    }
-    fn head_branch(&self) -> Result<git2::Branch> {
-        Ok(self.inner.find_branch(
-            &self
-                .branch_name()
-                .ok_or_else(|| anyhow!("head is not a branch"))?,
-            git2::BranchType::Local,
-        )?)
-    }
-    fn head_oid(&self) -> Result<git2::Oid> {
-        Ok(self
-            .head_branch()?
-            .into_reference()
-            .target()
-            .ok_or_else(|| anyhow!("reference is indirect"))?)
-    }
-    fn remote_branch(&self) -> Result<git2::Branch> {
-        Ok(self.head_branch()?.upstream()?)
-    }
-    fn remote_reference(&self) -> Result<git2::Reference> {
-        Ok(self.remote_branch()?.into_reference())
-    }
-    pub fn remote_name(&self) -> Option<String> {
-        if let Ok(remote) = self.remote_reference() {
-            remote.shorthand().map(str::to_string)
-        } else {
-            None
-        }
-    }
-    fn remote_oid(&self) -> Result<git2::Oid> {
-        Ok(self
-            .remote_reference()?
-            .target()
-            .ok_or_else(|| anyhow!("remote is not a branch"))?)
-    }
-    pub fn distance(&self) -> Distance {
-        if let (Ok(head), Ok(remote)) = (self.head_oid(), self.remote_oid()) {
-            match self.inner.graph_ahead_behind(head, remote) {
-                Ok((0, 0)) => Distance::Same,
-                Ok((a, b)) if a > 0 && b == 0 => Distance::Ahead,
-                Ok((a, b)) if a == 0 && b > 0 => Distance::Behind,
-                Ok((_, _)) => Distance::Both,
-                Err(_) => Distance::Unknown,
-            }
-        } else {
-            Distance::Unknown
-        }
-    }
-    pub fn commit_summary(&self) -> Result<String> {
-        let commit = self.inner.find_commit(self.head_oid()?)?;
-        Ok(commit
-            .summary()
-            .ok_or_else(|| anyhow!("commit summary is not valid UTF-8"))?
-            .into())
-    }
     pub fn fetch(&self) -> Result<()> {
-        let local_name = self
-            .inner
+        let inner = self.inner.lock().unwrap();
+        let local_name = inner
             .head()?
             .name()
             .ok_or_else(|| anyhow!("local name is not valid UTF-8"))?
             .to_owned();
-        let remote_name = self.inner.branch_upstream_remote(&local_name)?;
-        let mut remote = self.inner.find_remote(
+        let remote_name = inner.branch_upstream_remote(&local_name)?;
+        let mut remote = inner.find_remote(
             remote_name
                 .as_str()
                 .ok_or_else(|| anyhow!("remote name is not valid UTF-8"))?,
         )?;
+
+        // Create credentials callback for SSH authentication
         let mut callbacks = git2::RemoteCallbacks::new();
         callbacks.credentials(|_, _, _| {
             git2::Cred::ssh_key(
@@ -121,7 +44,61 @@ impl Repository {
         });
         let mut fo = git2::FetchOptions::new();
         fo.remote_callbacks(callbacks);
+
+        // Fetch
         Ok(remote.fetch(&[&local_name], Some(&mut fo), None)?)
+    }
+    pub fn compute_status(&mut self) -> Result<()> {
+        let inner = self.inner.lock().unwrap();
+        let mut status_options = git2::StatusOptions::new();
+        status_options
+            .show(git2::StatusShow::IndexAndWorkdir)
+            .include_untracked(true)
+            .include_ignored(false);
+        let statuses = inner.statuses(Some(&mut status_options))?;
+        let status = statuses.iter().fold(HashSet::new(), |mut set, s| {
+            set.insert(s.status());
+            set
+        });
+        self.status = Status::Known(status);
+        Ok(())
+    }
+    pub fn status(&self) -> &Status {
+        &self.status
+    }
+    pub fn branch_name(&self) -> Option<String> {
+        let inner = self.inner.lock().unwrap();
+        let head_branch = git2::Branch::wrap(inner.head().ok()?);
+        head_branch.name().ok()?.map(String::from)
+    }
+    pub fn remote_name(&self) -> Option<String> {
+        let inner = self.inner.lock().unwrap();
+        let head_branch = git2::Branch::wrap(inner.head().ok()?);
+        let remote_branch = head_branch.upstream().ok()?;
+        remote_branch.name().ok()?.map(String::from)
+    }
+    pub fn distance(&self) -> Option<Distance> {
+        let inner = self.inner.lock().unwrap();
+        let local_ref = inner.head().ok()?;
+        let local_oid = local_ref.target()?;
+        let upstream_oid = git2::Branch::wrap(local_ref)
+            .upstream()
+            .ok()?
+            .into_reference()
+            .target()?;
+        match inner.graph_ahead_behind(local_oid, upstream_oid) {
+            Ok((0, 0)) => Some(Distance::Same),
+            Ok((a, b)) if a > 0 && b == 0 => Some(Distance::Ahead),
+            Ok((a, b)) if a == 0 && b > 0 => Some(Distance::Behind),
+            Ok((_, _)) => Some(Distance::Both),
+            Err(_) => None,
+        }
+    }
+    pub fn commit_summary(&self) -> Option<String> {
+        let inner = self.inner.lock().unwrap();
+        let head_oid = inner.head().ok()?.target()?;
+        let commit = inner.find_commit(head_oid).ok()?;
+        commit.summary().map(String::from)
     }
 }
 
@@ -182,7 +159,6 @@ pub enum Distance {
     Ahead,
     Behind,
     Both,
-    Unknown,
 }
 
 impl fmt::Display for Distance {
@@ -192,7 +168,6 @@ impl fmt::Display for Distance {
             Distance::Ahead => ">>",
             Distance::Behind => "<<",
             Distance::Both => "<>",
-            Distance::Unknown => "",
         };
         write!(f, "{}", symbol)
     }
