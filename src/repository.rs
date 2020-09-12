@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 
 pub struct Repository {
     inner: Arc<Mutex<git2::Repository>>,
-    status: Status,
+    status: Option<Status>,
 }
 
 impl Repository {
@@ -15,7 +15,7 @@ impl Repository {
         let repository = git2::Repository::open(path)?;
         Ok(Self {
             inner: Arc::new(Mutex::new(repository)),
-            status: Status::Unknown,
+            status: None,
         })
     }
     pub fn fetch(&self) -> Result<()> {
@@ -56,15 +56,15 @@ impl Repository {
             .include_untracked(true)
             .include_ignored(false);
         let statuses = inner.statuses(Some(&mut status_options))?;
-        let status = statuses.iter().fold(HashSet::new(), |mut set, s| {
+        let set = statuses.iter().fold(HashSet::new(), |mut set, s| {
             set.insert(s.status());
             set
         });
-        self.status = Status::Known(status);
+        self.status = Some(Status(set));
         Ok(())
     }
-    pub fn status(&self) -> &Status {
-        &self.status
+    pub fn status(&self) -> Option<&Status> {
+        self.status.as_ref()
     }
     pub fn branch_name(&self) -> Option<String> {
         let inner = self.inner.lock().unwrap();
@@ -102,39 +102,24 @@ impl Repository {
     }
 }
 
-pub enum Status {
-    Known(HashSet<git2::Status>),
-    Unknown,
-}
+pub struct Status(HashSet<git2::Status>);
 
 impl Status {
     pub fn has_staged_files(&self) -> bool {
-        if let Status::Known(status) = self {
-            status.contains(&FileStatus::INDEX_NEW)
-                || status.contains(&FileStatus::INDEX_MODIFIED)
-                || status.contains(&FileStatus::INDEX_DELETED)
-                || status.contains(&FileStatus::INDEX_RENAMED)
-                || status.contains(&FileStatus::INDEX_TYPECHANGE)
-        } else {
-            false
-        }
+        self.0.contains(&FileStatus::INDEX_NEW)
+            || self.0.contains(&FileStatus::INDEX_MODIFIED)
+            || self.0.contains(&FileStatus::INDEX_DELETED)
+            || self.0.contains(&FileStatus::INDEX_RENAMED)
+            || self.0.contains(&FileStatus::INDEX_TYPECHANGE)
     }
     pub fn has_unstaged_files(&self) -> bool {
-        if let Status::Known(status) = self {
-            status.contains(&FileStatus::WT_MODIFIED)
-                || status.contains(&FileStatus::WT_DELETED)
-                || status.contains(&FileStatus::WT_RENAMED)
-                || status.contains(&FileStatus::WT_TYPECHANGE)
-        } else {
-            false
-        }
+        self.0.contains(&FileStatus::WT_MODIFIED)
+            || self.0.contains(&FileStatus::WT_DELETED)
+            || self.0.contains(&FileStatus::WT_RENAMED)
+            || self.0.contains(&FileStatus::WT_TYPECHANGE)
     }
     pub fn has_untracked_files(&self) -> bool {
-        if let Status::Known(status) = self {
-            status.contains(&FileStatus::WT_NEW)
-        } else {
-            false
-        }
+        self.0.contains(&FileStatus::WT_NEW)
     }
 }
 

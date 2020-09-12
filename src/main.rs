@@ -208,6 +208,12 @@ fn main() -> Result<()> {
     // Add rows to table
     for (name, repository) in sorted_map.iter() {
         if let Some(repository) = repository {
+            // Get status
+            let status = if let Some(status) = repository.status() {
+                status.to_string()
+            } else {
+                String::new()
+            };
             // Get distance between local and upstream
             let distance = if let Some(distance) = repository.distance() {
                 distance.to_string()
@@ -216,7 +222,7 @@ fn main() -> Result<()> {
             };
             table.add_row(row![
                 name,
-                repository.status().to_string(),
+                status,
                 repository.branch_name().unwrap_or_default().to_string(),
                 distance,
                 repository.remote_name().unwrap_or_default().to_string(),
