@@ -19,14 +19,16 @@ It is inspired by [gita](https://github.com/nosarthur/gita.git).
 ## Usage
 
 The program keeps a list of repositories (in `~/.config/glim/config.toml`) on Linux.
+It assigns a default name which is the repository's directory name.
 
-Programs can be added/removed/renamed using the following subcommands:
+The following subcommands are available:
 
-+ `glim add <REPO_PATH>...`
-+ `glim remove <NAME>...`
-+ `glim rename <NAME> <NEW_NAME>` (the default name is the repository's directory)
++ `glim add <REPO_PATH>...`: add new repositories (by path)
++ `glim remove <NAME>...`: remove repositories (by name)
++ `glim rename <NAME> <NEW_NAME>`: rename a repository
++ `glim path <NAME>`: read the path of a repository
 
-This will produce a `cargo.toml` file of this form (which can also be edited manually):
+This will produce a `config.toml` file of this form (which can also be edited manually):
 
 ```text
 [repositories]
