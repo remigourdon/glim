@@ -87,6 +87,16 @@ fn main() -> Result<()> {
                         .required(true),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("path")
+                .about("Get repository's path")
+                .arg(
+                    Arg::with_name("name")
+                        .value_name("NAME")
+                        .help("Name of the repository")
+                        .required(true),
+                ),
+        )
         .get_matches();
 
     // Create config directory if it doesn't exist
@@ -128,6 +138,14 @@ fn main() -> Result<()> {
                 config.rename_repository(name, new_name)?;
                 modified = true;
             }
+            ("path", Some(matches)) => {
+                let name = matches.value_of("name").unwrap();
+                let path = config
+                    .repositories()
+                    .get(name)
+                    .context("name does not exist")?;
+                println!("{:?}", path);
+            }
             (invalid_subcommand, _) => {
                 eprintln!("Invalid subcommand '{}'", invalid_subcommand);
             }
@@ -143,7 +161,7 @@ fn main() -> Result<()> {
     }
 
     // Attempt to open repositories
-    let mut repositories = Vec::with_capacity(config.repository_count());
+    let mut repositories = Vec::with_capacity(config.repositories().len());
     for (name, path) in config.repositories() {
         match Repository::open(name, path) {
             Ok(repository) => repositories.push(repository),
