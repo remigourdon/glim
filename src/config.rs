@@ -1,22 +1,40 @@
-use anyhow::{anyhow, Result};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use anyhow::{anyhow, Context, Result};
+use directories::ProjectDirs;
+use serde::{Deserialize, Serialize};
+use structopt::clap::crate_name;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
+    #[serde(skip)]
+    path: PathBuf,
     repositories: HashMap<String, PathBuf>,
 }
 
 impl Config {
-    pub fn new() -> Self {
-        Self {
-            repositories: HashMap::new(),
+    pub fn new() -> Result<Self> {
+        // Get default config path
+        let app_name = crate_name!();
+        let project_dirs = ProjectDirs::from("com", app_name, app_name)
+            .ok_or_else(|| anyhow!("could not retrieve home directory from system"))?;
+        let default_config_path = project_dirs.config_dir().join("config.toml");
+        // Create config directory if it doesn't exist
+        let config_dir = project_dirs.config_dir();
+        if !config_dir.is_dir() {
+            std::fs::create_dir(config_dir).context("failed to create config directory")?;
         }
+        Ok(Self {
+            path: default_config_path,
+            repositories: HashMap::new(),
+        })
     }
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let path = path.as_ref();
         let string = std::fs::read_to_string(path)?;
-        let config: Config = toml::from_str(&string)?;
+        let mut config: Config = toml::from_str(&string)?;
+        config.path = path.to_owned();
         Ok(config)
     }
     pub fn repositories(&self) -> &HashMap<String, PathBuf> {
@@ -55,7 +73,7 @@ impl Config {
             Ok(())
         }
     }
-    pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        Ok(std::fs::write(path.as_ref(), toml::to_vec(self)?)?)
+    pub fn save(&self) -> Result<()> {
+        Ok(std::fs::write(&self.path, toml::to_vec(self)?)?)
     }
 }

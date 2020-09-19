@@ -10,10 +10,10 @@ edition = "2018"
 [dependencies]
 anyhow = "1.0"
 thiserror = "1.0"
+structopt = "0.3"
 git2 = "0.13"
 toml = "0.5"
 directories = "3.0"
-clap = "2"
 serde = { version = "1.0", features = ["derive"] }
 prettytable-rs = { version = "0.8", default-features = false }
 threadpool = "1.0"
