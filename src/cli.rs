@@ -12,13 +12,17 @@ use structopt::StructOpt;
 use threadpool::ThreadPool;
 
 #[derive(StructOpt)]
+#[structopt(about)]
 pub struct CLI {
+    /// Set a custom config file
     #[structopt(short, long)]
     config: Option<PathBuf>,
 
+    /// Do not fetch
     #[structopt(short = "F", long)]
     no_fetch: bool,
 
+    /// Number of workers
     #[structopt(short, long, default_value = "4")]
     workers: usize,
 
@@ -28,9 +32,13 @@ pub struct CLI {
 
 #[derive(StructOpt)]
 enum Command {
+    /// Add new repositories
     Add { path: Vec<PathBuf> },
+    /// Remove repositories
     Remove { name: Vec<String> },
+    /// Rename repository
     Rename { name: String, new_name: String },
+    /// Get repository's path
     Path { name: String },
 }
 
