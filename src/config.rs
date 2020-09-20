@@ -1,5 +1,7 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use anyhow::{anyhow, Context, Result};
 use directories::ProjectDirs;
@@ -14,22 +16,6 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new() -> Result<Self> {
-        // Get default config path
-        let app_name = crate_name!();
-        let project_dirs = ProjectDirs::from("com", app_name, app_name)
-            .ok_or_else(|| anyhow!("could not retrieve home directory from system"))?;
-        let default_config_path = project_dirs.config_dir().join("config.toml");
-        // Create config directory if it doesn't exist
-        let config_dir = project_dirs.config_dir();
-        if !config_dir.is_dir() {
-            std::fs::create_dir(config_dir).context("failed to create config directory")?;
-        }
-        Ok(Self {
-            path: default_config_path,
-            repositories: HashMap::new(),
-        })
-    }
     pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
         let string = std::fs::read_to_string(path)?;
@@ -74,6 +60,43 @@ impl Config {
         }
     }
     pub fn save(&self) -> Result<()> {
-        Ok(std::fs::write(&self.path, toml::to_vec(self)?)?)
+        let mut path = self.path.clone();
+        if path.pop() {
+            // Create config directory if it doesn't exist
+            if !path.is_dir() {
+                std::fs::create_dir(path).context("failed to create config directory")?;
+            }
+            Ok(std::fs::write(&self.path, toml::to_vec(self)?)?)
+        } else {
+            Err(anyhow!("invalid config directory path"))
+        }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        // Get default config path
+        let app_name = crate_name!();
+        let project_dirs = ProjectDirs::from("com", app_name, app_name)
+            .expect("could not retrieve home directory from system");
+        let default_config_path = project_dirs.config_dir().join("config.toml");
+        Self {
+            path: default_config_path,
+            repositories: HashMap::new(),
+        }
+    }
+}
+
+impl FromStr for Config {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_path(s).map_err(|_| "Could not create config from path")
+    }
+}
+
+impl fmt::Display for Config {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.path.to_str().unwrap())
     }
 }

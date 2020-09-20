@@ -8,6 +8,6 @@ use anyhow::Result;
 use structopt::StructOpt;
 
 fn main() -> Result<()> {
-    let cli = CLI::from_args();
+    let mut cli = CLI::from_args();
     cli.run()
 }

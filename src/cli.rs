@@ -15,8 +15,8 @@ use threadpool::ThreadPool;
 #[structopt(about)]
 pub struct CLI {
     /// Set a custom config file
-    #[structopt(short, long)]
-    config: Option<PathBuf>,
+    #[structopt(short, long, default_value)]
+    config: Config,
 
     /// Do not fetch
     #[structopt(short = "F", long)]
@@ -43,56 +43,51 @@ enum Command {
 }
 
 impl CLI {
-    pub fn run(&self) -> Result<()> {
-        let config = match &self.config {
-            Some(path) => Config::from_path(path)?,
-            None => Config::new()?,
-        };
-        match &self.command {
-            Some(command) => self.run_command(config, &command),
-            None => self.run_process(config),
-        }
+    pub fn run(&mut self) -> Result<()> {
+        self.run_command()?;
+        self.run_process()
     }
-    fn run_command(&self, config: Config, command: &Command) -> Result<()> {
-        let mut config = config;
+    fn run_command(&mut self) -> Result<()> {
         let mut modified = false;
-        match command {
-            Command::Add { path } => {
+        match &self.command {
+            Some(Command::Add { path }) => {
                 for path in path {
-                    config.add_repository(path)?;
+                    self.config.add_repository(path)?;
                     modified = true;
                 }
             }
-            Command::Remove { name } => {
+            Some(Command::Remove { name }) => {
                 for name in name {
-                    if config.remove_repository_by_name(&name) {
+                    if self.config.remove_repository_by_name(&name) {
                         modified = true;
                     }
                 }
             }
-            Command::Rename { name, new_name } => {
-                config.rename_repository(&name, &new_name)?;
+            Some(Command::Rename { name, new_name }) => {
+                self.config.rename_repository(&name, &new_name)?;
                 modified = true;
             }
-            Command::Path { name } => {
-                let path = config
+            Some(Command::Path { name }) => {
+                let path = self
+                    .config
                     .repositories()
                     .get(name)
                     .context("name does not exist")?;
                 println!("{:?}", path);
             }
+            None => {}
         }
 
         // Save config
         if modified {
-            config.save().context("failed to save config")?;
+            self.config.save().context("failed to save config")?;
         }
         Ok(())
     }
-    fn run_process(&self, config: Config) -> Result<()> {
+    fn run_process(&self) -> Result<()> {
         // Attempt to open repositories
-        let mut repositories = Vec::with_capacity(config.repositories().len());
-        for (name, path) in config.repositories() {
+        let mut repositories = Vec::with_capacity(self.config.repositories().len());
+        for (name, path) in self.config.repositories() {
             match Repository::open(name, path) {
                 Ok(repository) => repositories.push(repository),
                 Err(e) => eprintln!("Could not open '{}': {}", name, e),
