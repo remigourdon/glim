@@ -15,7 +15,7 @@ use threadpool::ThreadPool;
 #[structopt(about)]
 pub struct CLI {
     /// Set a custom config file
-    #[structopt(short, long, default_value)]
+    #[structopt(value_name = "FILE", short, long, default_value)]
     config: Config,
 
     /// Do not fetch
@@ -23,7 +23,7 @@ pub struct CLI {
     no_fetch: bool,
 
     /// Number of workers
-    #[structopt(short, long, default_value = "4")]
+    #[structopt(value_name = "NUM_WORKERS", short, long, default_value = "4")]
     workers: usize,
 
     #[structopt(subcommand)]
@@ -33,21 +33,46 @@ pub struct CLI {
 #[derive(StructOpt)]
 enum Command {
     /// Add new repositories
-    Add { path: Vec<PathBuf> },
+    Add {
+        /// Paths to the repositories to add
+        #[structopt(value_name = "PATH")]
+        path: Vec<PathBuf>,
+    },
     /// Remove repositories
-    Remove { name: Vec<String> },
+    Remove {
+        /// Names of the repositories to remove
+        #[structopt(value_name = "NAME")]
+        name: Vec<String>,
+    },
     /// Rename repository
-    Rename { name: String, new_name: String },
+    Rename {
+        /// Current name of the repository
+        #[structopt(value_name = "NAME")]
+        name: String,
+        /// New name of the repository
+        #[structopt(value_name = "NEW_NAME")]
+        new_name: String,
+    },
     /// Get repository's path
-    Path { name: String },
+    Path {
+        /// Name of the repository
+        #[structopt(value_name = "NAME")]
+        name: String,
+    },
 }
 
 impl CLI {
     pub fn run(&mut self) -> Result<()> {
-        self.run_command()?;
-        self.run_process()
+        let ran_command = self.run_command()?;
+        // Process repositories and display only if a subcommand wasn't run
+        if !ran_command {
+            self.process_and_display()
+        } else {
+            Ok(())
+        }
     }
-    fn run_command(&mut self) -> Result<()> {
+    fn run_command(&mut self) -> Result<bool> {
+        let mut ran_command = true;
         let mut modified = false;
         match &self.command {
             Some(Command::Add { path }) => {
@@ -75,16 +100,18 @@ impl CLI {
                     .context("name does not exist")?;
                 println!("{:?}", path);
             }
-            None => {}
+            None => {
+                ran_command = false;
+            }
         }
 
         // Save config
         if modified {
             self.config.save().context("failed to save config")?;
         }
-        Ok(())
+        Ok(ran_command)
     }
-    fn run_process(&self) -> Result<()> {
+    fn process_and_display(&self) -> Result<()> {
         // Attempt to open repositories
         let mut repositories = Vec::with_capacity(self.config.repositories().len());
         for (name, path) in self.config.repositories() {
