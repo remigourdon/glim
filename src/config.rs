@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use crate::source::Sources;
+
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -12,7 +13,8 @@ use structopt::clap::crate_name;
 pub struct Config {
     #[serde(skip)]
     path: PathBuf,
-    repositories: HashMap<String, PathBuf>,
+    #[serde(rename = "repositories")]
+    sources: Sources,
 }
 
 impl Config {
@@ -26,45 +28,15 @@ impl Config {
             }
             Err(_) => Ok(Self {
                 path: path.to_owned(),
-                repositories: HashMap::new(),
+                sources: Sources::new(),
             }),
         }
     }
-    pub fn repositories(&self) -> &HashMap<String, PathBuf> {
-        &self.repositories
+    pub fn sources_mut(&mut self) -> &mut Sources {
+        &mut self.sources
     }
-    pub fn add_repository<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
-        let path = path.as_ref();
-        let name = path
-            .components()
-            .last()
-            .ok_or_else(|| anyhow!("path is too short"))?
-            .as_os_str()
-            .to_str()
-            .ok_or_else(|| anyhow!("path is not valid UTF-8"))?;
-        if !self.repositories.contains_key(name) {
-            self.repositories.insert(name.to_owned(), path.to_owned());
-            Ok(())
-        } else {
-            Err(anyhow!("name '{}' already exists", name))
-        }
-    }
-    pub fn remove_repository_by_name(&mut self, name: &str) -> bool {
-        self.repositories.remove(name).is_some()
-    }
-    pub fn rename_repository(&mut self, name: &str, new_name: &str) -> Result<()> {
-        if !self.repositories.contains_key(name) {
-            Err(anyhow!("name '{}' does not exist", name))
-        } else if self.repositories.contains_key(new_name) {
-            Err(anyhow!("name '{}' already exists", new_name))
-        } else {
-            let value = self
-                .repositories
-                .remove(name)
-                .expect("failed to remove repository");
-            self.repositories.insert(new_name.to_owned(), value);
-            Ok(())
-        }
+    pub fn sources(&self) -> &Sources {
+        &self.sources
     }
     pub fn save(&self) -> Result<()> {
         let mut path = self.path.clone();
@@ -89,7 +61,7 @@ impl Default for Config {
         let default_config_path = project_dirs.config_dir().join("config.toml");
         Self {
             path: default_config_path,
-            repositories: HashMap::new(),
+            sources: Sources::new(),
         }
     }
 }

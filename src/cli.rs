@@ -1,5 +1,4 @@
 use crate::config::Config;
-use crate::repository::Repository;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -72,33 +71,29 @@ impl CLI {
         }
     }
     fn run_command(&mut self) -> Result<bool> {
+        let sources = self.config.sources_mut();
         let mut ran_command = true;
         let mut modified = false;
         match &self.command {
             Some(Command::Add { path }) => {
                 for path in path {
-                    self.config.add_repository(path)?;
+                    sources.add(path, None)?;
                     modified = true;
                 }
             }
             Some(Command::Remove { name }) => {
                 for name in name {
-                    if self.config.remove_repository_by_name(&name) {
-                        modified = true;
-                    }
+                    let _source = sources.remove(&name)?;
+                    modified = true;
                 }
             }
             Some(Command::Rename { name, new_name }) => {
-                self.config.rename_repository(&name, &new_name)?;
+                sources.rename(&name, &new_name)?;
                 modified = true;
             }
             Some(Command::Path { name }) => {
-                let path = self
-                    .config
-                    .repositories()
-                    .get(name)
-                    .context("name does not exist")?;
-                println!("{:?}", path);
+                let source = sources.get(name).context("name does not exist")?;
+                println!("{:?}", source.path);
             }
             None => {
                 ran_command = false;
@@ -113,13 +108,13 @@ impl CLI {
     }
     fn process_and_display(&self) -> Result<()> {
         // Attempt to open repositories
-        let mut repositories = Vec::with_capacity(self.config.repositories().len());
-        for (name, path) in self.config.repositories() {
-            match Repository::open(name, path) {
-                Ok(repository) => repositories.push(repository),
-                Err(e) => eprintln!("Could not open '{}': {}", name, e),
-            }
-        }
+        let (repositories, _): (Vec<_>, Vec<_>) = self
+            .config
+            .sources()
+            .iter()
+            .map(|s| s.open())
+            .partition(Result::is_ok);
+        let repositories = repositories.into_iter().map(Result::unwrap);
 
         // Create thread pool
         let pool = ThreadPool::new(self.workers);

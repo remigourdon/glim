@@ -1,6 +1,7 @@
 mod cli;
 mod config;
 mod repository;
+mod source;
 
 use cli::CLI;
 

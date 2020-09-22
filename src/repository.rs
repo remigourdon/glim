@@ -1,9 +1,11 @@
-use anyhow::{anyhow, Result};
-use git2::Status as FileStatus;
+use crate::source::Source;
+
 use std::collections::HashSet;
 use std::fmt;
-use std::path::Path;
 use std::sync::{Arc, Mutex};
+
+use anyhow::{anyhow, Result};
+use git2::Status as FileStatus;
 
 pub struct Repository {
     inner: Arc<Mutex<git2::Repository>>,
@@ -12,11 +14,11 @@ pub struct Repository {
 }
 
 impl Repository {
-    pub fn open<P: AsRef<Path>>(name: &str, path: P) -> Result<Self> {
-        let repository = git2::Repository::open(path)?;
+    pub fn from_source(source: Source) -> Result<Self> {
+        let repository = git2::Repository::open(source.path)?;
         Ok(Self {
             inner: Arc::new(Mutex::new(repository)),
-            name: name.to_string(),
+            name: source.name.to_owned(),
             status: None,
         })
     }
