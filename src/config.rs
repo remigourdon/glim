@@ -16,12 +16,19 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self> {
         let path = path.as_ref();
-        let string = std::fs::read_to_string(path)?;
-        let mut config: Config = toml::from_str(&string)?;
-        config.path = path.to_owned();
-        Ok(config)
+        match std::fs::read_to_string(path) {
+            Ok(string) => {
+                let mut config: Config = toml::from_str(&string)?;
+                config.path = path.to_owned();
+                Ok(config)
+            }
+            Err(_) => Ok(Self {
+                path: path.to_owned(),
+                repositories: HashMap::new(),
+            }),
+        }
     }
     pub fn repositories(&self) -> &HashMap<String, PathBuf> {
         &self.repositories
@@ -91,7 +98,7 @@ impl FromStr for Config {
     type Err = &'static str;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::from_path(s).map_err(|_| "Could not create config from path")
+        Self::new(s).map_err(|_| "could not create config from path")
     }
 }
 
