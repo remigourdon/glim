@@ -46,18 +46,21 @@ $ glim
 
 The following symbols indicate the status of the repository:
 
-+ `+`: staged changes
-+ `*`: unstaged changes
-+ `_`: untracked files
++ `+` if it contains staged changes
++ `*` if it contains unstaged changes
++ `_` if it contains untracked files
 
 Those symbols show whether the local branch is ahead and/or behind its tracked remote:
 
-+ `==`: they are the same
-+ `<<`: local is behind remote
-+ `>>`: local is ahead of remote
-+ `<>`: local is both ahead and behind of remote
++ `==` if they are the same
++ `<<` if the local branch is behind the remote branch
++ `>>` if the local is ahead of the remote branch
++ `<>` if the local is both ahead and behind of the remote branch
 
 ## Installation
+
+Currently no binary releases are available, so Rust needs to be installed.
+This can be done [following the instructions on this page](https://www.rust-lang.org/tools/install).
 
 At the moment, `glim` can be installed from source as follows:
 
